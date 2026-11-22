@@ -63,11 +63,9 @@ def ask_ai(user_id, text):
     history = conversations.setdefault(user_id, [])
     messages = [{"role": "system", "content": SYSTEM}, *history, {"role": "user", "content": text}]
 
-    # ПРОБУЕМ САМЫЕ ЖИВУЧИЕ ФРИ МОДЕЛИ
+    # БЕСПЛАТНЫЙ АВТОМАТИЧЕСКИЙ РОУТЕР OPENROUTER
     models_to_try = [
-        "meta-llama/llama-3.1-8b-instruct:free",
-        "google/gemma-2-9b-it:free",
-        "deepseek/deepseek-r1:free"
+        "openrouter/free"
     ]
 
     errors = []
