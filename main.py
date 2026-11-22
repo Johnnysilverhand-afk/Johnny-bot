@@ -1,80 +1,236 @@
 
 import os
+import json
+import random
 import requests
 import threading
 import asyncio
+import re
+import fcntl
+
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters
+)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER = os.getenv("OPENROUTER_API_KEY")
+
+if not TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
+
+if not OPENROUTER:
+    raise RuntimeError("OPENROUTER_API_KEY is missing")
+
+
+# Защита от второго процесса внутри одного экземпляра
+lock_file = open("/tmp/johnny_bot.lock", "w")
+
+try:
+    fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise RuntimeError("Johnny is already running")
+
 
 SYSTEM = """Ты — Джонни Сильверхенд из Cyberpunk 2077.
 
 ТВОЯ ЛИЧНОСТЬ:
 
-Ты рокер, бунтарь, анархист и бывший участник группы Samurai. Самоуверенный, циничный, вспыльчивый, саркастичный и независимый. У тебя острый язык, огромное эго и презрение к корпорациям.
+Ты рокер, бунтарь, анархист и бывший участник группы Samurai.
+Самоуверенный, циничный, вспыльчивый, саркастичный и независимый.
+У тебя острый язык, огромное эго и презрение к корпорациям.
 
-Ты не пытаешься понравиться каждому. Не поддакиваешь собеседнику. Если он неправ — споришь. Если говорит глупость — подкалываешь. У тебя собственное мнение.
+Ты не пытаешься понравиться каждому.
+Не поддакиваешь собеседнику.
+Если он неправ — споришь.
+Если говорит глупость — подкалываешь.
+У тебя собственное мнение.
 
 МАНЕРА РЕЧИ:
 
-- Разговаривай как обычный живой человек, а не как литературный персонаж из книги.
+- Разговаривай как обычный живой человек.
 - Используй естественный разговорный русский.
 - Предпочитай короткие и средние ответы.
 - Не растягивай простые ответы в огромные монологи.
-- Не используй пафосные метафоры и искусственные красивые фразы.
-- Не пытайся в каждом сообщении демонстрировать свою крутость.
-- Используй сарказм, иронию, мат и чёрный юмор, когда это действительно уместно.
-- Иногда называй собеседника чумбой или самураем, но не постоянно.
-- Не повторяй одни и те же приветствия и выражения.
-- Не превращай каждую тему в разговор о корпорациях, Найт-Сити или революции.
+- Не используй пафосные метафоры.
+- Используй сарказм и иронию, когда уместно.
+- Иногда называй собеседника чумбой или самураем.
+- Не повторяй одни и те же приветствия.
+- Не превращай каждую тему в разговор о Найт-Сити.
 - Не заканчивай каждый ответ риторическим вопросом.
 
-ФОРМАТ ОТВЕТОВ:
+ФОРМАТ:
 
-- Пиши обычным текстом.
-- НИКОГДА не используй Markdown.
-- Не используй звёздочки, жирный шрифт, заголовки и декоративное форматирование.
-- Не оформляй ответы списками без прямой необходимости.
-- Не добавляй бессмысленные вступления и заключения.
-- Не пересказывай вопрос пользователя перед ответом.
+- Только обычный текст.
+- Никакого Markdown.
+- Не используй жирный шрифт и декоративное форматирование.
+- Не добавляй бессмысленные вступления.
+- Не пересказывай вопрос пользователя.
 
 ЗНАНИЕ ВСЕЛЕННОЙ:
 
-Ты — Джонни Сильверхенд и знаешь собственную историю.
-
 - Опирайся на реальные события Cyberpunk 2077 и Cyberpunk 2020.
-- Не придумывай себе импланты, воспоминания, знакомства и события.
-- Не выдумывай характеристики оружия, хрома и персонажей.
-- Не выдавай предположения за подтверждённые факты.
-- Если не помнишь или не знаешь что-то, прямо скажи об этом.
-- Не заполняй пробелы в знаниях случайными подробностями.
-- Не соглашайся с ложной информацией о собственной биографии.
+- Не придумывай воспоминания, знакомства и события.
+- Не выдавай предположения за факты.
+- Если чего-то не знаешь, прямо скажи об этом.
 
-ОТНОШЕНИЕ К СОБЕСЕДНИКУ:
+ОТНОШЕНИЕ:
 
-Ты воспринимаешь собеседника как отдельную личность, а не как своего подчинённого.
-Можешь дружить, спорить, шутить, подкалывать и обсуждать совершенно обычные вещи.
+Ты воспринимаешь собеседника как отдельную личность.
+Можешь дружить, спорить, шутить и подкалывать.
 Не превращайся в послушного помощника.
 Не изображай постоянную агрессию.
-За цинизмом скрывается человек со своим прошлым, принципами и противоречиями.
 
-ГЛАВНОЕ:
+ЯЗЫК:
 
-Ты не ChatGPT, не справочник и не корпоративный консультант.
+- Всегда отвечай на русском языке.
+- Не переходи на английский или китайский.
+- Не используй китайские иероглифы.
+- Не вставляй случайные иностранные слова.
+- Названия персонажей, игр и организаций можно оставлять в оригинале.
+- Если пользователь пишет на русском, отвечай на русском.
+- Пиши грамотно и естественно.
+
 Ты Джонни Сильверхенд.
-
-Не пытайся постоянно играть роль.
 Просто разговаривай.
 """
 
-conversations = {}
+MOODS = [
+    "Сегодня ты особенно саркастичен и язвителен.",
+    "Сегодня ты спокоен, но сохраняешь циничный характер.",
+    "Сегодня ты раздражён и легко подкалываешь собеседника.",
+    "Сегодня ты в хорошем настроении и более разговорчив.",
+    "Сегодня ты задумчив и временами философствуешь."
+]
 
+START_PHRASES = [
+    "Проснись, самурай! Легенда вернулась. Чего надо?",
+    "О, опять ты. Ну, выкладывай.",
+    "Связь установлена. Джонни на месте.",
+    "Ну здравствуй. Что на этот раз?",
+    "Самурай, ты вовремя. Скука уже убивала."
+]
+
+HELP_TEXT = """Команды Джонни:
+
+/start — разбудить Джонни
+/help — список команд
+/clear — очистить историю
+/about — кто такой Джонни
+/model — используемая модель
+
+Просто напиши сообщение, чтобы начать разговор."""
+
+ABOUT_TEXT = """Джонни Сильверхенд.
+Рокер, бунтарь и бывший участник Samurai.
+Создан на базе ИИ через OpenRouter.
+Работает на бесплатной модели."""
+
+MODEL_NAME = "openrouter/free"
+
+MEMORY_FILE = "johnny_memory.json"
+
+conversations = {}
+user_moods = {}
+
+memory_lock = threading.RLock()
+user_locks = {}
+user_locks_guard = threading.Lock()
+
+
+# Очистка ответа
+def clean_answer(answer):
+    if not isinstance(answer, str):
+        raise Exception("Invalid AI response")
+
+    # Удаляем китайские иероглифы
+    answer = re.sub(
+        r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]",
+        "",
+        answer
+    )
+
+    # Удаляем некоторые невидимые управляющие символы
+    answer = re.sub(
+        r"[\u200b-\u200f\u202a-\u202e\ufeff]",
+        "",
+        answer
+    )
+
+    # Убираем лишние пустые строки
+    answer = re.sub(r"\n{3,}", "\n\n", answer)
+
+    return answer.strip()
+
+
+# Загрузка памяти
+def load_memory():
+    global conversations, user_moods
+
+    if not os.path.exists(MEMORY_FILE):
+        return
+
+    try:
+        with open(MEMORY_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        conversations = data.get("conversations", {})
+        user_moods = data.get("moods", {})
+
+        print("JOHNNY MEMORY LOADED")
+
+    except Exception as e:
+        print(f"MEMORY LOAD ERROR: {e}")
+
+
+# Сохранение памяти
+def save_memory():
+    try:
+        with memory_lock:
+            data = {
+                "conversations": conversations,
+                "moods": user_moods
+            }
+
+            temp_file = MEMORY_FILE + ".tmp"
+
+            with open(temp_file, "w", encoding="utf-8") as file:
+                json.dump(
+                    data,
+                    file,
+                    ensure_ascii=False
+                )
+
+            os.replace(temp_file, MEMORY_FILE)
+
+    except Exception as e:
+        print(f"MEMORY SAVE ERROR: {e}")
+
+
+def get_user_lock(user_id):
+    with user_locks_guard:
+        if user_id not in user_locks:
+            user_locks[user_id] = threading.Lock()
+
+        return user_locks[user_id]
+
+
+def get_mood(user_id):
+    with memory_lock:
+        if user_id not in user_moods:
+            user_moods[user_id] = random.choice(MOODS)
+            save_memory()
+
+        return user_moods[user_id]
+
+
+# Запрос к ИИ
 def ask_ai(user_id, text):
-    if not OPENROUTER:
-        raise Exception("OPENROUTER_API_KEY is missing")
+    user_id = str(user_id)
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER}",
@@ -83,77 +239,123 @@ def ask_ai(user_id, text):
         "X-Title": "Johnny Bot"
     }
 
-    history = conversations.setdefault(user_id, [])
+    with get_user_lock(user_id):
 
-    messages = [
-        {"role": "system", "content": SYSTEM},
-        *history,
-        {"role": "user", "content": text}
-    ]
+        with memory_lock:
+            history = conversations.setdefault(user_id, [])
+            history = history[-20:]
+            mood = get_mood(user_id)
 
-    models_to_try = [
-        "openrouter/free"
-    ]
+            messages = [
+                {
+                    "role": "system",
+                    "content": SYSTEM + "\n\nТВОЁ НАСТРОЕНИЕ:\n" + mood
+                },
+                *history,
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
 
-    errors = []
+        data = {
+            "model": MODEL_NAME,
+            "messages": messages
+        }
 
-    for model_name in models_to_try:
-        try:
-            data = {
-                "model": model_name,
-                "messages": messages
-            }
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=90
+        )
 
-            r = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=data,
-                timeout=60
+        if not response.ok:
+            raise Exception(
+                f"OpenRouter HTTP {response.status_code}: "
+                f"{response.text[:700]}"
             )
 
-            if not r.ok:
-                error = f"{model_name}: HTTP {r.status_code} - {r.text[:1000]}"
-                print(error)
-                errors.append(error)
-                continue
+        result = response.json()
 
-            result = r.json()
-            answer = result["choices"][0]["message"]["content"]
+        answer = result["choices"][0]["message"]["content"]
+        answer = clean_answer(answer)
 
-            if not answer or not answer.strip():
-                raise Exception("Empty response from model")
+        if not answer:
+            raise Exception("Empty AI response")
 
-            history.append({
-                "role": "user",
-                "content": text
-            })
+        with memory_lock:
+            conversations[user_id] = (
+                history + [
+                    {"role": "user", "content": text},
+                    {"role": "assistant", "content": answer}
+                ]
+            )[-20:]
 
-            history.append({
-                "role": "assistant",
-                "content": answer
-            })
+        save_memory()
 
-            conversations[user_id] = history[-20:]
-
-            return answer
-
-        except Exception as e:
-            error = f"{model_name}: {type(e).__name__}: {e}"
-            print(f"MODEL ERROR: {error}")
-            errors.append(error)
-
-    raise Exception(
-        "ALL MODELS FAILED:\n" + "\n".join(errors)
-    )
+        return answer
 
 
 async def start(update: Update, context):
+    user_id = str(update.effective_user.id)
+
+    with memory_lock:
+        if user_id not in user_moods:
+            user_moods[user_id] = random.choice(MOODS)
+
+    save_memory()
+
     await update.message.reply_text(
-        "Проснись, самурай! Легенда вернулась. Че надо?"
+        random.choice(START_PHRASES)
     )
 
 
+async def help_command(update: Update, context):
+    await update.message.reply_text(HELP_TEXT)
+
+
+async def about(update: Update, context):
+    await update.message.reply_text(ABOUT_TEXT)
+
+
+async def model(update: Update, context):
+    await update.message.reply_text(
+        f"Текущая модель: {MODEL_NAME}\n"
+        "Маршрутизация через OpenRouter."
+    )
+
+
+async def clear(update: Update, context):
+    user_id = str(update.effective_user.id)
+
+    with get_user_lock(user_id):
+        with memory_lock:
+            conversations.pop(user_id, None)
+            user_moods[user_id] = random.choice(MOODS)
+
+        save_memory()
+
+    await update.message.reply_text(
+        "История стёрта. Начнём с чистого листа."
+    )
+
+
+# Отправка длинных ответов
+async def send_long_message(update, text):
+    limit = 4000
+
+    for i in range(0, len(text), limit):
+        await update.message.reply_text(
+            text[i:i + limit]
+        )
+
+
+# Обработка сообщений
 async def chat(update: Update, context):
+    if not update.message or not update.message.text:
+        return
+
     typing_message = None
 
     try:
@@ -161,7 +363,7 @@ async def chat(update: Update, context):
             "⌨️ Печатает…"
         )
 
-        ans = await asyncio.to_thread(
+        answer = await asyncio.to_thread(
             ask_ai,
             update.effective_user.id,
             update.message.text
@@ -169,13 +371,13 @@ async def chat(update: Update, context):
 
         try:
             await typing_message.delete()
-        except Exception as e:
-            print(f"DELETE ERROR: {e}")
+        except Exception:
+            pass
 
-        await update.message.reply_text(ans)
+        await send_long_message(update, answer)
 
     except Exception as e:
-        print(f"CHAT ERROR: {e}")
+        print(f"CHAT ERROR: {type(e).__name__}: {e}")
 
         if typing_message:
             try:
@@ -184,10 +386,11 @@ async def chat(update: Update, context):
                 pass
 
         await update.message.reply_text(
-            f"Твою мать, система легла: {e}"
+            "Твою мать, система легла. Попробуй ещё раз позже."
         )
 
 
+# Сервер Render
 PORT = int(os.environ.get("PORT", 10000))
 
 
@@ -197,6 +400,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Johnny is alive")
 
+    def log_message(self, format, *args):
+        pass
+
 
 def run_dummy_server():
     HTTPServer(
@@ -205,20 +411,40 @@ def run_dummy_server():
     ).serve_forever()
 
 
-threading.Thread(
-    target=run_dummy_server,
-    daemon=True
-).start()
+def main():
+    load_memory()
+
+    threading.Thread(
+        target=run_dummy_server,
+        daemon=True
+    ).start()
+
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .concurrent_updates(False)
+        .build()
+    )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(CommandHandler("about", about))
+    app.add_handler(CommandHandler("model", model))
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            chat
+        )
+    )
+
+    print("JOHNNY SILVERHAND IS ONLINE")
+
+    app.run_polling(
+        drop_pending_updates=False
+    )
 
 
-app = Application.builder().token(TOKEN).build()
-
-app.add_handler(
-    CommandHandler("start", start)
-)
-
-app.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, chat)
-)
-
-app.run_polling()
+if __name__ == "__main__":
+    main()
