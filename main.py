@@ -2,6 +2,7 @@
 import os
 import requests
 import threading
+import asyncio
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
@@ -61,9 +62,12 @@ def ask_ai(user_id, text):
     }
 
     history = conversations.setdefault(user_id, [])
-    messages = [{"role": "system", "content": SYSTEM}, *history, {"role": "user", "content": text}]
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        *history,
+        {"role": "user", "content": text}
+    ]
 
-    # БЕСПЛАТНЫЙ АВТОМАТИЧЕСКИЙ РОУТЕР OPENROUTER
     models_to_try = [
         "openrouter/free"
     ]
@@ -72,7 +76,10 @@ def ask_ai(user_id, text):
 
     for model_name in models_to_try:
         try:
-            data = {"model": model_name, "messages": messages}
+            data = {
+                "model": model_name,
+                "messages": messages
+            }
 
             r = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -107,16 +114,51 @@ def ask_ai(user_id, text):
 
     raise Exception("ALL MODELS FAILED:\n" + "\n".join(errors))
 
+
 async def start(update: Update, context):
-    await update.message.reply_text("Проснись, самурай! Легенда вернулась. Че надо, чумба?")
+    await update.message.reply_text(
+        "Проснись, самурай! Легенда вернулась. Че надо, чумба?"
+    )
+
 
 async def chat(update: Update, context):
+    typing_message = None
+
     try:
-        ans = ask_ai(update.effective_user.id, update.message.text)
+        # Отправляем сообщение о печати
+        typing_message = await update.message.reply_text(
+            "⌨️ Печатает…"
+        )
+
+        # Запускаем ИИ, не блокируя Telegram
+        ans = await asyncio.to_thread(
+            ask_ai,
+            update.effective_user.id,
+            update.message.text
+        )
+
+        # Удаляем сообщение «Печатает…»
+        try:
+            await typing_message.delete()
+        except Exception as e:
+            print(f"DELETE ERROR: {e}")
+
+        # Отправляем готовый ответ
         await update.message.reply_text(ans)
+
     except Exception as e:
         print(f"CHAT ERROR: {e}")
-        await update.message.reply_text(f"Твою мать, система легла: {e}")
+
+        if typing_message:
+            try:
+                await typing_message.delete()
+            except Exception:
+                pass
+
+        await update.message.reply_text(
+            f"Твою мать, система легла: {e}"
+        )
+
 
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -126,10 +168,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Johnny is alive")
 
+
 def run_dummy_server():
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
-threading.Thread(target=run_dummy_server, daemon=True).start()
+
+threading.Thread(
+    target=run_dummy_server,
+    daemon=True
+).start()
 
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
