@@ -13,10 +13,10 @@ SYSTEM = """ Ты — Джонни Сильверхенд из Cyberpunk 2077. �
 conversations = {}
 
 def ask_ai(user_id, text):
-    headers = {"Authorization": f"Bearer {OPENROUTER}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {OPENROUTER}", "Content-Type": "application/json", "HTTP-Referer": "https://github.com", "X-Title": "Johnny Bot"}
     history = conversations.setdefault(user_id, [])
     messages = [{"role": "system", "content": SYSTEM}, *history, {"role": "user", "content": text}]
-    data = {"model": "deepseek/deepseek-r1:free", "messages": messages}
+    data = {"model": "deepseek/deepseek-chat:free", "messages": messages}
     r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data, timeout=60)
     r.raise_for_status()
     answer = r.json()["choices"][0]["message"]["content"]
