@@ -1,3 +1,4 @@
+
 import os
 import requests
 import threading
@@ -46,12 +47,19 @@ SYSTEM = """Ты — Джонни Сильверхенд из Cyberpunk 2077.
 conversations = {}
 
 def ask_ai(user_id, text):
+    if not TOKEN:
+        raise Exception("TELEGRAM_BOT_TOKEN is missing")
+
+    if not OPENROUTER:
+        raise Exception("OPENROUTER_API_KEY is missing")
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://github.com",
         "X-Title": "Johnny Bot"
     }
+
     history = conversations.setdefault(user_id, [])
     messages = [{"role": "system", "content": SYSTEM}, *history, {"role": "user", "content": text}]
 
@@ -62,21 +70,44 @@ def ask_ai(user_id, text):
         "deepseek/deepseek-r1:free"
     ]
 
+    errors = []
+
     for model_name in models_to_try:
         try:
             data = {"model": model_name, "messages": messages}
-            r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data, timeout=60)
-            r.raise_for_status()
-            answer = r.json()["choices"][0]["message"]["content"]
+
+            r = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=60
+            )
+
+            if not r.ok:
+                error = f"{model_name}: HTTP {r.status_code} - {r.text[:1000]}"
+                print(error)
+                errors.append(error)
+                continue
+
+            result = r.json()
+            answer = result["choices"][0]["message"]["content"]
+
+            if not answer:
+                raise Exception("Empty response from model")
+
             history.append({"role": "user", "content": text})
             history.append({"role": "assistant", "content": answer})
             conversations[user_id] = history[-20:]
+
             return answer
+
         except Exception as e:
-            print(f"Model {model_name} failed: {e}")
+            error = f"{model_name}: {type(e).__name__}: {e}"
+            print(f"MODEL ERROR: {error}")
+            errors.append(error)
             continue
 
-    raise Exception("All models failed - check OpenRouter balance")
+    raise Exception("ALL MODELS FAILED:\n" + "\n".join(errors))
 
 async def start(update: Update, context):
     await update.message.reply_text("Проснись, самурай! Легенда вернулась. Че надо, чумба?")
@@ -86,9 +117,11 @@ async def chat(update: Update, context):
         ans = ask_ai(update.effective_user.id, update.message.text)
         await update.message.reply_text(ans)
     except Exception as e:
+        print(f"CHAT ERROR: {e}")
         await update.message.reply_text(f"Твою мать, система легла: {e}")
 
 PORT = int(os.environ.get("PORT", 10000))
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
