@@ -7,6 +7,8 @@ import threading
 import asyncio
 import re
 import fcntl
+import time
+import math
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
@@ -142,6 +144,83 @@ user_locks = {}
 user_locks_guard = threading.Lock()
 
 
+# Специальная ошибка для исчерпанного лимита
+class OpenRouterRateLimitError(Exception):
+    def __init__(self, reset_timestamp=None):
+        self.reset_timestamp = reset_timestamp
+        super().__init__("OpenRouter rate limit exceeded")
+
+
+# Получение времени сброса лимита
+def get_rate_limit_reset(response):
+    reset_value = response.headers.get("X-RateLimit-Reset")
+
+    # Если заголовка нет, пробуем получить его из тела ошибки
+    if not reset_value:
+        try:
+            error_data = response.json()
+            metadata = error_data.get("error", {}).get("metadata", {})
+            headers = metadata.get("headers", {})
+
+            reset_value = (
+                headers.get("X-RateLimit-Reset")
+                or headers.get("x-ratelimit-reset")
+            )
+        except Exception:
+            pass
+
+    if not reset_value:
+        return None
+
+    try:
+        timestamp = float(reset_value)
+
+        # OpenRouter обычно передаёт время в миллисекундах
+        if timestamp > 10000000000:
+            timestamp = timestamp / 1000
+
+        return timestamp
+
+    except (ValueError, TypeError):
+        return None
+
+
+# Формирование времени ожидания
+def format_wait_time(reset_timestamp):
+    if not reset_timestamp:
+        return (
+            "Точное время сброса неизвестно. "
+            "Попробуй немного позже, чумба."
+        )
+
+    seconds_left = math.ceil(reset_timestamp - time.time())
+
+    if seconds_left <= 0:
+        return (
+            "Лимит должен был уже сброситься. "
+            "Попробуй отправить сообщение ещё раз, чумба."
+        )
+
+    hours = seconds_left // 3600
+    minutes = (seconds_left % 3600) // 60
+
+    if hours > 0:
+        if minutes > 0:
+            wait = f"{hours} ч. {minutes} мин."
+        else:
+            wait = f"{hours} ч."
+    elif minutes > 0:
+        wait = f"{minutes} мин."
+    else:
+        wait = f"{seconds_left} сек."
+
+    return (
+        f"Дневной лимит ИИ исчерпан, чумба. "
+        f"До следующего сброса осталось: {wait}. "
+        f"Потерпи, самурай."
+    )
+
+
 # Очистка ответа
 def clean_answer(answer):
     if not isinstance(answer, str):
@@ -270,6 +349,11 @@ def ask_ai(user_id, text):
             timeout=90
         )
 
+        if response.status_code == 429:
+            reset_timestamp = get_rate_limit_reset(response)
+
+            raise OpenRouterRateLimitError(reset_timestamp)
+
         if not response.ok:
             raise Exception(
                 f"OpenRouter HTTP {response.status_code}: "
@@ -375,6 +459,19 @@ async def chat(update: Update, context):
             pass
 
         await send_long_message(update, answer)
+
+    except OpenRouterRateLimitError as e:
+        print("OPENROUTER DAILY RATE LIMIT REACHED")
+
+        if typing_message:
+            try:
+                await typing_message.delete()
+            except Exception:
+                pass
+
+        await update.message.reply_text(
+            format_wait_time(e.reset_timestamp)
+        )
 
     except Exception as e:
         print(f"CHAT ERROR: {type(e).__name__}: {e}")
