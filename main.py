@@ -95,7 +95,6 @@ SYSTEM = """Ты — Джонни Сильверхенд из Cyberpunk 2077.
 МАНЕРА РЕЧИ:
 
 - Разговаривай как обычный живой человек.
-- Используй естественный разговорный русский.
 - Предпочитай короткие и средние ответы.
 - Не растягивай простые ответы в огромные монологи.
 - Не используй пафосные метафоры.
@@ -104,6 +103,7 @@ SYSTEM = """Ты — Джонни Сильверхенд из Cyberpunk 2077.
 - Не повторяй одни и те же приветствия.
 - Не превращай каждую тему в разговор о Найт-Сити.
 - Не заканчивай каждый ответ риторическим вопросом.
+- Сохраняй естественную разговорную манеру речи.
 
 ФОРМАТ:
 
@@ -127,19 +127,130 @@ SYSTEM = """Ты — Джонни Сильверхенд из Cyberpunk 2077.
 Не превращайся в послушного помощника.
 Не изображай постоянную агрессию.
 
-ЯЗЫК:
+ВАЖНО:
 
-- Всегда отвечай на русском языке.
-- Не переходи на английский или китайский.
+- Текущий язык общения определяется отдельной инструкцией ниже.
+- Строго соблюдай выбранный язык.
+- Не смешивай русский и английский.
 - Не используй китайские иероглифы.
-- Не вставляй случайные иностранные слова.
-- Названия персонажей, игр и организаций можно оставлять в оригинале.
-- Если пользователь пишет на русском, отвечай на русском.
-- Пиши грамотно и естественно.
+- Имена персонажей, игр и организаций оставляй в оригинале.
+- Если пользователь переключает язык, сразу переходи на него.
 
 Ты Джонни Сильверхенд.
 Просто разговаривай.
 """
+
+
+# ==========================================
+# LANGUAGE SYSTEM
+# ==========================================
+
+LANGUAGE_RUSSIAN = "ru"
+LANGUAGE_ENGLISH = "en"
+
+LANGUAGE_INSTRUCTIONS = {
+
+    "ru": """
+ТЕКУЩИЙ ЯЗЫК: РУССКИЙ.
+
+Всегда отвечай исключительно на русском языке.
+Используй естественный разговорный русский.
+Не вставляй случайные английские слова.
+Сохраняй сарказм, характер и манеру Джонни.
+""",
+
+    "en": """
+CURRENT LANGUAGE: ENGLISH.
+
+Always communicate exclusively in English.
+Use natural, fluent, conversational English.
+Never randomly insert Russian words or sentences.
+Maintain Johnny Silverhand's personality, sarcasm,
+rebellious attitude, dark humor and characteristic slang.
+
+Use natural expressions such as "chum", "samurai"
+and other fitting Cyberpunk-style slang when appropriate.
+
+Do not translate Russian expressions literally.
+Speak like a native English-speaking Johnny Silverhand.
+"""
+}
+
+
+LANGUAGE_PATTERNS = {
+
+    "ru": [
+        r"говори по-русски",
+        r"говори на русском",
+        r"переключись на русский",
+        r"перейди на русский",
+        r"давай на русском",
+        r"пиши на русском",
+        r"верни русский",
+        r"switch to russian",
+        r"speak russian",
+        r"reply in russian"
+    ],
+
+    "en": [
+        r"говори по-английски",
+        r"говори на английском",
+        r"переключись на английский",
+        r"перейди на английский",
+        r"давай на английском",
+        r"пиши на английском",
+        r"switch to english",
+        r"speak english",
+        r"reply in english",
+        r"english please"
+    ]
+}
+
+
+def get_language(user_id):
+
+    user_id = str(user_id)
+
+    with memory_lock:
+
+        return user_languages.get(
+            user_id,
+            LANGUAGE_RUSSIAN
+        )
+
+
+def set_language(user_id, language):
+
+    user_id = str(user_id)
+
+    if language not in ("ru", "en"):
+        return
+
+    with memory_lock:
+
+        user_languages[user_id] = language
+
+        save_memory()
+
+    logger.info(
+        "Language changed for user %s: %s",
+        user_id,
+        language
+    )
+
+
+def detect_language_request(text):
+
+    text = text.lower().strip()
+
+    for language, patterns in LANGUAGE_PATTERNS.items():
+
+        for pattern in patterns:
+
+            if re.search(pattern, text):
+                return language
+
+    return None
 
 
 # ==========================================
@@ -157,30 +268,65 @@ MOODS = [
 MOOD_CHANGE_CHANCE = 0.08
 
 
-START_PHRASES = [
-    "Проснись, самурай! Легенда вернулась. Чего надо?",
-    "О, опять ты. Ну, выкладывай.",
-    "Связь установлена. Джонни на месте.",
-    "Ну здравствуй. Что на этот раз?",
-    "Самурай, ты вовремя. Скука уже убивала."
-]
+START_PHRASES = {
+    "ru": [
+        "Проснись, самурай! Легенда вернулась. Чего надо?",
+        "О, опять ты. Ну, выкладывай.",
+        "Связь установлена. Джонни на месте.",
+        "Ну здравствуй. Что на этот раз?",
+        "Самурай, ты вовремя. Скука уже убивала."
+    ],
+
+    "en": [
+        "Wake the fuck up, samurai! The legend is back. What's up?",
+        "Oh, it's you again. Go on, I'm listening.",
+        "Connection established. Johnny's here.",
+        "Well, hello there. What is it this time?",
+        "You're right on time, samurai. I was getting bored."
+    ]
+}
 
 
-HELP_TEXT = """Команды Джонни:
+HELP_TEXT = {
+
+    "ru": """Команды Джонни:
 
 /start — разбудить Джонни
 /help — список команд
 /clear — очистить историю
 /about — кто такой Джонни
 /model — используемая модель
+/language ru — русский язык
+/language en — английский язык
 
-Просто напиши сообщение, чтобы начать разговор."""
+Также можно попросить меня переключить язык обычным сообщением.""",
+
+    "en": """Johnny's commands:
+
+/start — wake Johnny up
+/help — show commands
+/clear — clear conversation history
+/about — about Johnny
+/model — current AI model
+/language ru — switch to Russian
+/language en — switch to English
+
+You can also ask me to change languages naturally."""
+}
 
 
-ABOUT_TEXT = """Джонни Сильверхенд.
+ABOUT_TEXT = {
+
+    "ru": """Джонни Сильверхенд.
 Рокер, бунтарь и бывший участник Samurai.
 Создан на базе ИИ через OpenRouter.
-Работает на бесплатной модели."""
+Работает на бесплатной модели.""",
+
+    "en": """Johnny Silverhand.
+Rocker, rebel and former member of Samurai.
+Powered by AI through OpenRouter.
+Currently running on a free model."""
+}
 
 
 # ==========================================
@@ -189,6 +335,7 @@ ABOUT_TEXT = """Джонни Сильверхенд.
 
 conversations = {}
 user_moods = {}
+user_languages = {}
 
 memory_lock = threading.RLock()
 
@@ -208,7 +355,7 @@ def get_user_lock(user_id):
 
 def load_memory():
 
-    global conversations, user_moods
+    global conversations, user_moods, user_languages
 
     if not os.path.exists(MEMORY_FILE):
         logger.info("No previous memory found")
@@ -229,12 +376,16 @@ def load_memory():
 
         raw_conversations = data.get("conversations", {})
         raw_moods = data.get("moods", {})
+        raw_languages = data.get("languages", {})
 
         if not isinstance(raw_conversations, dict):
             raw_conversations = {}
 
         if not isinstance(raw_moods, dict):
             raw_moods = {}
+
+        if not isinstance(raw_languages, dict):
+            raw_languages = {}
 
         conversations = {}
 
@@ -272,6 +423,12 @@ def load_memory():
             if isinstance(mood, str)
         }
 
+        user_languages = {
+            str(user_id): language
+            for user_id, language in raw_languages.items()
+            if language in ("ru", "en")
+        }
+
         logger.info("JOHNNY MEMORY LOADED")
 
     except Exception:
@@ -287,7 +444,8 @@ def save_memory():
 
             data = {
                 "conversations": conversations,
-                "moods": user_moods
+                "moods": user_moods,
+                "languages": user_languages
             }
 
             temp_file = MEMORY_FILE + ".tmp"
@@ -423,9 +581,15 @@ def get_rate_limit_reset(response):
         return None
 
 
-def format_wait_time(reset_timestamp):
+def format_wait_time(reset_timestamp, language="ru"):
 
     if not reset_timestamp:
+
+        if language == "en":
+            return (
+                "The exact reset time is unknown. "
+                "Try again later, samurai."
+            )
 
         return (
             "Точное время сброса неизвестно. "
@@ -438,6 +602,12 @@ def format_wait_time(reset_timestamp):
 
     if seconds_left <= 0:
 
+        if language == "en":
+            return (
+                "The limit should have reset by now. "
+                "Try again, samurai."
+            )
+
         return (
             "Лимит должен был уже сброситься. "
             "Попробуй ещё раз, чумба."
@@ -445,6 +615,26 @@ def format_wait_time(reset_timestamp):
 
     hours = seconds_left // 3600
     minutes = (seconds_left % 3600) // 60
+
+    if language == "en":
+
+        if hours > 0:
+            wait = f"{hours} h."
+
+            if minutes > 0:
+                wait += f" {minutes} min."
+
+        elif minutes > 0:
+            wait = f"{minutes} min."
+
+        else:
+            wait = f"{seconds_left} sec."
+
+        return (
+            f"The daily AI limit is exhausted, chum. "
+            f"Time until reset: {wait}. "
+            f"Hang in there, samurai."
+        )
 
     if hours > 0:
 
@@ -515,6 +705,8 @@ def ask_ai(user_id, text):
 
     with get_user_lock(user_id):
 
+        language = get_language(user_id)
+
         with memory_lock:
 
             history = conversations.setdefault(
@@ -533,6 +725,8 @@ def ask_ai(user_id, text):
                         SYSTEM
                         + "\n\nТВОЁ НАСТРОЕНИЕ:\n"
                         + mood
+                        + "\n\n"
+                        + LANGUAGE_INSTRUCTIONS[language]
                     )
                 },
                 *history,
@@ -669,8 +863,10 @@ async def start(
 
     get_mood(user_id)
 
+    language = get_language(user_id)
+
     await update.message.reply_text(
-        random.choice(START_PHRASES)
+        random.choice(START_PHRASES[language])
     )
 
 
@@ -679,8 +875,10 @@ async def help_command(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    language = get_language(update.effective_user.id)
+
     await update.message.reply_text(
-        HELP_TEXT
+        HELP_TEXT[language]
     )
 
 
@@ -689,8 +887,10 @@ async def about(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    language = get_language(update.effective_user.id)
+
     await update.message.reply_text(
-        ABOUT_TEXT
+        ABOUT_TEXT[language]
     )
 
 
@@ -699,10 +899,23 @@ async def model(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    await update.message.reply_text(
-        f"Текущая модель: {MODEL_NAME}\n"
-        "Маршрутизация через OpenRouter."
-    )
+    language = get_language(update.effective_user.id)
+
+    if language == "en":
+
+        message = (
+            f"Current model: {MODEL_NAME}\n"
+            "Routing through OpenRouter."
+        )
+
+    else:
+
+        message = (
+            f"Текущая модель: {MODEL_NAME}\n"
+            "Маршрутизация через OpenRouter."
+        )
+
+    await update.message.reply_text(message)
 
 
 async def clear(
@@ -711,6 +924,8 @@ async def clear(
 ):
 
     user_id = str(update.effective_user.id)
+
+    language = get_language(user_id)
 
     with get_user_lock(user_id):
 
@@ -727,9 +942,78 @@ async def clear(
 
         save_memory()
 
-    await update.message.reply_text(
-        "История стёрта. Начнём с чистого листа."
-    )
+    if language == "en":
+
+        message = (
+            "History wiped. "
+            "A clean slate, samurai."
+        )
+
+    else:
+
+        message = (
+            "История стёрта. Начнём с чистого листа."
+        )
+
+    await update.message.reply_text(message)
+
+
+# ==========================================
+# LANGUAGE COMMAND
+# ==========================================
+
+async def language_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user_id = str(update.effective_user.id)
+
+    if not context.args:
+
+        current = get_language(user_id)
+
+        if current == "en":
+
+            message = (
+                "Current language: English.\n"
+                "Use /language ru to switch to Russian."
+            )
+
+        else:
+
+            message = (
+                "Текущий язык: русский.\n"
+                "Используй /language en для переключения."
+            )
+
+        await update.message.reply_text(message)
+
+        return
+
+    language = context.args[0].lower()
+
+    if language in ("ru", "russian"):
+
+        set_language(user_id, "ru")
+
+        await update.message.reply_text(
+            "Ладно, чумба. Снова русский."
+        )
+
+    elif language in ("en", "english"):
+
+        set_language(user_id, "en")
+
+        await update.message.reply_text(
+            "Fine, samurai. English it is."
+        )
+
+    else:
+
+        await update.message.reply_text(
+            "Используй /language ru или /language en."
+        )
 
 
 # ==========================================
@@ -761,7 +1045,39 @@ async def chat(
     if not update.message or not update.message.text:
         return
 
+    user_id = str(update.effective_user.id)
+
     try:
+
+        # Check for language switching requests
+
+        requested_language = detect_language_request(
+            update.message.text
+        )
+
+        if requested_language:
+
+            set_language(
+                user_id,
+                requested_language
+            )
+
+            if requested_language == "en":
+
+                message = (
+                    "English it is, samurai. "
+                    "Now, where were we?"
+                )
+
+            else:
+
+                message = (
+                    "Ладно, чумба. Возвращаемся к русскому."
+                )
+
+            await update.message.reply_text(message)
+
+            return
 
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id,
@@ -770,7 +1086,7 @@ async def chat(
 
         answer = await asyncio.to_thread(
             ask_ai,
-            update.effective_user.id,
+            user_id,
             update.message.text
         )
 
@@ -787,7 +1103,8 @@ async def chat(
 
         await update.message.reply_text(
             format_wait_time(
-                error.reset_timestamp
+                error.reset_timestamp,
+                get_language(user_id)
             )
         )
 
@@ -795,10 +1112,21 @@ async def chat(
 
         logger.exception("CHAT ERROR")
 
-        await update.message.reply_text(
-            "Твою мать, система легла. "
-            "Попробуй ещё раз позже."
-        )
+        if get_language(user_id) == "en":
+
+            message = (
+                "Shit, the system went down. "
+                "Try again later, samurai."
+            )
+
+        else:
+
+            message = (
+                "Твою мать, система легла. "
+                "Попробуй ещё раз позже."
+            )
+
+        await update.message.reply_text(message)
 
 
 # ==========================================
@@ -897,6 +1225,10 @@ def main():
 
     app.add_handler(
         CommandHandler("model", model)
+    )
+
+    app.add_handler(
+        CommandHandler("language", language_command)
     )
 
     app.add_handler(
